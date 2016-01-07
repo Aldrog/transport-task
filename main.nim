@@ -1,4 +1,5 @@
-import dataprocessing, classification, path, math, linalg, strutils, times
+import algorithm, path, math, linalg, strutils, times
+import dataprocessing, classification
 {.passL:"-lcblas".}
 
 const startPoint = (x: 11038.08464497, y: 8253.17542416)
@@ -45,17 +46,18 @@ for i in 0..<busRoutes.len:
                                           timestamps: [prevTime, curTime])
 echo segments.len
 proc price(x: seq[int]): float =
-    if x.len == 0 or x.len >= 1000:
-        return -1.0 # Useless
+    if x.len != 37:
+        return -1.0
     else:
         result = (x[1] - x[0]).float
         for i in 1..<x.high:
             if (x[i + 1] - x[i]).float < result:
                 result = (x[i + 1] - x[i]).float
-        result /= (abs(x.len - 39) + 1).float
+        #result /= (abs(x.len - 39) + 1).float
 
 var endRes: seq[int]
-ransac(segments, seq[int], 1000, 50, price, dataSet, res, endRes):
+ransac(segments, seq[int], 1000, 10, price, dataSet, res, endRes):
+    res.newSeq(0)
     var classificationData = newSeq[ClassificationPoint](fragmentNumber(routeLen) + 1)
     var dsCount = newSeq[int](classificationData.len)
     for i in 0..<classificationData.len:
@@ -94,13 +96,30 @@ ransac(segments, seq[int], 1000, 50, price, dataSet, res, endRes):
         inc k
     #echo k - 1
     #echo clusters
-    res.newSeq(0)
+    let stopCluster = clusters.whichCluster(classificationData[fragmentNumber(middleStopPosition)])
+    var possibleStops = newSeq[int](0)
     if clusters.len > 0:
         for i in 0..<classificationData.len:
-            if clusters.whichCluster(classificationData[i]) ==
-               clusters.whichCluster(classificationData[fragmentNumber(middleStopPosition)]):
+            if clusters.whichCluster(classificationData[i]) == stopCluster:
+                possibleStops.add i
+    if possibleStops.len > 0:
+        possibleStops.delete(possibleStops.high)
+        possibleStops.delete(0)
+        possibleStops.sort do (x, y: int) -> int:
+            cmp(classification.dist(classificationData[x], clusters[stopCluster].center),
+                classification.dist(classificationData[y], clusters[stopCluster].center))
+        for i in possibleStops:
+            if (i - 1) notin possibleStops and (i + 1) notin possibleStops:
                 res.add i
-    #echo res
+        while res.len > 37:
+            res.delete(res.high)
+        var ind = 0
+        while res.len < 37:
+            if possibleStops[ind] notin res and
+              (possibleStops[ind] - 1) notin res and (possibleStops[ind] + 1) notin res:
+                res.add possibleStops[ind]
+            inc ind
+        res.sort(cmp[int])
 echo endRes
 var output: File
 if not output.open("output.txt", fmWrite):
