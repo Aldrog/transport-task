@@ -19,7 +19,8 @@ type Route* = object
     color*: Color
 
 type BusRoute* = object
-    data*: seq[gpsPoint]
+    locations*: seq[gpsPoint]
+    time*: seq[Time]
     busID*: string
     color*: Color
 
@@ -40,10 +41,12 @@ proc splitToBusRoutes*(data: seq[DataEntry]): seq[BusRoute] =
     var tempRoutes = initTable[string, BusRoute]()
     for entry in data:
         if not tempRoutes.hasKey(entry.id):
-            tempRoutes[entry.id] = BusRoute(data: newSeq[gpsPoint](0),
-                                         busID: entry.id,
-                                         color: parseColor("#" & entry.id))
-        tempRoutes[entry.id].data.add entry.coords
+            tempRoutes[entry.id] = BusRoute(locations: newSeq[gpsPoint](0),
+                                            time: newSeq[Time](0),
+                                            busID: entry.id,
+                                            color: parseColor("#" & entry.id))
+        tempRoutes[entry.id].locations.add entry.coords
+        tempRoutes[entry.id].time.add entry.time
     return toSeq(tempRoutes.values)
 
 proc splitToRoutes*(data: seq[DataEntry]): seq[Route] =
@@ -96,8 +99,9 @@ proc splitToRoutes*(data: seq[DataEntry]): seq[Route] =
 
 randomize()
 template ransac*(data: seq[expr]; resType: typedesc; setSize, reqCount: int;
-                price: (proc(x: resType): float); dataSet, res: expr; resEval: stmt): stmt {.
+         price: (proc(x: resType): float); dataSet, res, endRes: expr; resEval: stmt): stmt {.
          immediate.} =
+    #var endRes: resType
     var dataSet: data.type
     var results: seq[resType]
     var prices = newSeq[float](0)
@@ -110,14 +114,14 @@ template ransac*(data: seq[expr]; resType: typedesc; setSize, reqCount: int;
                 dataSet.add entry
         var res: resType
         resEval
-        if price(res) >= 0:
+        if price(res) > 0:
             results.add res
             prices.add price(res)
             echo results.len, " ", price(res)
     var maxPrice = 0.0
     for i in 0..results.high:
         if prices[i] >= maxPrice:
-            result = results[i]
+            endRes = results[i]
             maxPrice = prices[i]
             echo prices[i]
 

@@ -1,10 +1,8 @@
 import math, seqUtils, algorithm, typetraits
-import dataprocessing
+import dataprocessing, path
 
 const maxNeighbourDistance = 100.0
-const lineWidth = 15.0
 
-type Path = seq[gpsPoint]
 type Angle = distinct float
 proc `<`(a, b: Angle): bool {.borrow.}
 proc `-`(x: Angle): Angle {.borrow.}
@@ -25,52 +23,10 @@ proc `+`(a, b: Angle): Angle =
 proc `-`(a, b: Angle): Angle =
     a + (-b)
 
-proc distance(a, b: gpsPoint): float =
-    sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2))
-
-proc positionOnPath(path: Path, p: gpsPoint, prevP: gpsPoint): float =
-    result = -1
-    var prevFound = false
-    var passedDist = 0.0
-    for i in 0..<path.high:
-        let partLen = distance(path[i + 1], path[i])
-        let k1 = (path[i + 1].y - path[i].y) / (path[i + 1].x - path[i].x)
-        let b1 = path[i].y - k1*path[i].x
-        let k2 = -1 / ((path[i + 1].y - path[i].y) / (path[i + 1].x - path[i].x))
-        var prevPosOnPart = -1.0
-        if not prevFound:
-            let b2 = prevP.y - k2*prevP.x
-            let proection = (x: (b2 - b1) / (k1 - k2), y: (k1*b2 - k2*b1) / (k1 - k2))
-            prevPosOnPart = distance(proection, path[i])
-            # Double check sign for case when line is absolutely vertical
-            if (proection.x - path[i].x) * (path[i + 1].x - path[i].x) < 0 or
-               (proection.y - path[i].y) * (path[i + 1].y - path[i].y) < 0:
-                prevPosOnPart *= -1
-            if distance(proection, prevP) < lineWidth and
-               prevPosOnPart >= 0 and prevPosOnPart <= partLen:
-                prevFound = true
-        if prevFound:
-            let b2 = p.y - k2*p.x
-            let proection = (x: (b2 - b1) / (k1 - k2), y: (k1*b2 - k2*b1) / (k1 - k2))
-            var posOnPart = distance(proection, path[i])
-            # Double check sign for case when line is absolutely vertical
-            if (proection.x - path[i].x) * (path[i + 1].x - path[i].x) < 0 or
-               (proection.y - path[i].y) * (path[i + 1].y - path[i].y) < 0:
-                posOnPart *= -1
-            if distance(proection, p) < lineWidth and
-               posOnPart >= 0 and posOnPart <= partLen and
-               posOnPart > prevPosOnPart:
-                return passedDist + posOnPart
-        if prevFound and distance(p, path[i]) < lineWidth:
-            return passedDist
-        if not prevFound and distance(prevP, path[i]) < lineWidth:
-            prevFound = true
-        passedDist += partLen
-
-proc approxPath*(data: seq[BusRoute]): Path =
+proc approximatePath*(data: seq[BusRoute]): Path =
     var maxCoords = (x: 0.0, y: 0.0)
     for route in data:
-        for p in route.data:
+        for p in route.locations:
             if p.x > maxCoords.x:
                 maxCoords.x = p.x
             if p.y > maxCoords.y:
@@ -78,20 +34,20 @@ proc approxPath*(data: seq[BusRoute]): Path =
     echo "field size: ", maxCoords
     var possibleIndeces = newSeq[tuple[rIndex, pIndex: int]](0)
     for ri in 0..<data.len:
-        for pi in 1..<data[ri].data.len:
+        for pi in 1..<data[ri].locations.len:
             possibleIndeces.add((ri, pi))
 
     proc price(polygon: Path): float =
         for entry in possibleIndeces:
-            if polygon.positionOnPath(data[entry.rIndex].data[entry.pIndex],
-                                      data[entry.rIndex].data[entry.pIndex - 1]) >= 0:
+            if polygon.pointPositionWithPrev(data[entry.rIndex].locations[entry.pIndex],
+                                      data[entry.rIndex].locations[entry.pIndex - 1]) >= 0:
                 result += 1
         echo result
         if result < 10000:
             result = -1
         else:
             result /= polygon.len.float - 1
-    ransac(possibleIndeces, Path, 20000, 1, price, dataSet, res):
+    ransac(possibleIndeces, Path, 10000, 1, price, dataSet, res):
         res = newSeq[gpsPoint](0)
         var cornerPoint = (x: 59.672867, y: 51.720605)#maxCoords#(x: 0.0, y: 0.0)
         #for entry in dataSet:
@@ -103,14 +59,14 @@ proc approxPath*(data: seq[BusRoute]): Path =
         res.add cornerPoint
         echo cornerPoint
         dataSet.keepIf(proc(item: tuple[rIndex, pIndex: int]): bool =
-            let p = data[item.rIndex].data[item.pIndex]
+            let p = data[item.rIndex].locations[item.pIndex]
             return p != cornerPoint)
         var w_l: Angle
         var w_u: Angle
         while res.len < 2 or res[res.high] != res[res.high - 1]:
             dataSet.sort(proc(a, b: tuple[rIndex, pIndex: int]): int =
-                let p1 = data[a.rIndex].data[a.pIndex]
-                let p2 = data[b.rIndex].data[b.pIndex]
+                let p1 = data[a.rIndex].locations[a.pIndex]
+                let p2 = data[b.rIndex].locations[b.pIndex]
                 cmp(distance(p1, cornerPoint), distance(p2, cornerPoint)) )
             #echo "closest: ", approxData[0].coords
             var tempSet = dataSet
@@ -131,7 +87,7 @@ proc approxPath*(data: seq[BusRoute]): Path =
                 var i = 0
                 while i < tempSet.len:
                     let
-                        p = data[tempSet[i].rIndex].data[tempSet[i].pIndex]
+                        p = data[tempSet[i].rIndex].locations[tempSet[i].pIndex]
                         #prevPoint = data[dataSet[i].rIndex].data[dataSet[i].pIndex - 1]
                         x = p.x - cornerPoint.x
                         y = p.y - cornerPoint.y
@@ -157,10 +113,12 @@ proc approxPath*(data: seq[BusRoute]): Path =
                         tempSet.delete(i)
                         dec i
                         for entry in dataSet:
-                            let point = data[entry.rIndex].data[entry.pIndex]
+                            let point = data[entry.rIndex].locations[entry.pIndex]
+                            let prevPoint = data[entry.rIndex].locations[entry.pIndex - 1]
                             var closePs = 0
                             var linePs = 0
-                            if distance(currentPoint, point) < lineWidth*4:
+                            if pointPositionWithPrev(res & p, point, prevPoint) >= 0 and
+                               distance(currentPoint, point) < lineWidth*4:
                                 inc closePs
                                 if arctan2(point.y - cornerPoint.y,
                                            point.x - cornerPoint.x).Angle <> (w_l, w_u):
@@ -171,9 +129,9 @@ proc approxPath*(data: seq[BusRoute]): Path =
                     inc i
                 var val = 0
                 for entry in dataSet:
-                    if positionOnPath(res & currentPoint,
-                                      data[entry.rIndex].data[entry.pIndex],
-                                      data[entry.rIndex].data[entry.pIndex - 1]) >= 0:
+                    if pointPositionWithPrev(res & currentPoint,
+                                      data[entry.rIndex].locations[entry.pIndex],
+                                      data[entry.rIndex].locations[entry.pIndex - 1]) >= 0:
                         inc val
                 if val > bestVal:
                     cornerPoint = currentPoint
@@ -183,15 +141,15 @@ proc approxPath*(data: seq[BusRoute]): Path =
             #echo cornerPoint.x, " ", cornerPoint.y
             var i = 0
             while i < dataSet.len:
-                let pPos = positionOnPath(res,
-                           data[dataSet[i].rIndex].data[dataSet[i].pIndex],
-                           data[dataSet[i].rIndex].data[dataSet[i].pIndex - 1])
+                let pPos = pointPositionWithPrev(res,
+                           data[dataSet[i].rIndex].locations[dataSet[i].pIndex],
+                           data[dataSet[i].rIndex].locations[dataSet[i].pIndex - 1])
                 #if data[dataSet[i].rIndex].data[dataSet[i].pIndex] == cornerPoint:
                 #    echo pPos, " ", prevPPos
-                if dataSet[i].pIndex < data[dataSet[i].rIndex].data.high:
-                    let nextPPos = positionOnPath(res,
-                                   data[dataSet[i].rIndex].data[dataSet[i].pIndex + 1],
-                                   data[dataSet[i].rIndex].data[dataSet[i].pIndex])
+                if dataSet[i].pIndex < data[dataSet[i].rIndex].locations.high:
+                    let nextPPos = pointPositionWithNext(res,
+                                   data[dataSet[i].rIndex].locations[dataSet[i].pIndex],
+                                   data[dataSet[i].rIndex].locations[dataSet[i].pIndex + 1])
                     if nextPPos >= 0 or
                        pPos >= 0:
                         dataSet.delete(i)
@@ -205,10 +163,10 @@ proc approxPath*(data: seq[BusRoute]): Path =
 
 when isMainModule:
     let data = readData("train.txt")
-    let path = approxPath(data.splitToBusRoutes())
+    let approxPath = approximatePath(data.splitToBusRoutes())
     var output: File
     if not output.open("pathVertices.txt", fmWrite):
         raise new IOError
-    for vertex in path:
+    for vertex in approxPath:
         output.writeLine($vertex.x & "\t" & $vertex.y)
 
