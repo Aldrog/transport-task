@@ -47,7 +47,7 @@ proc approximatePath*(data: seq[BusRoute]): Path =
             result = -1
         else:
             result /= polygon.len.float - 1
-    ransac(possibleIndeces, Path, 10000, 1, price, dataSet, res):
+    ransac(possibleIndeces, Path, 10000, 1, price, dataSet, res, result):
         res = newSeq[gpsPoint](0)
         var cornerPoint = (x: 59.672867, y: 51.720605)#maxCoords#(x: 0.0, y: 0.0)
         #for entry in dataSet:
