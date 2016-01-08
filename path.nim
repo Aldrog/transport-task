@@ -1,7 +1,7 @@
 import math
 import dataprocessing
 
-const lineWidth* = 10.0
+const lineWidth* = 25.0
 
 type Path* = seq[gpsPoint]
 
@@ -108,7 +108,9 @@ proc globalPosition*(path: Path, posOnPath: float): gpsPoint =
         if posOnPath < passedDist + partLen:
             let sinus = (path[i + 1].y - path[i].y) / partLen
             let cosinus = (path[i + 1].x - path[i].x) / partLen
-            return (x: path[i].x + cosinus * (posOnPath - passedDist),
-                    y: path[i].y + sinus * (posOnPath - passedDist))
+            let offsetX = path[i].x + sinus * 5
+            let offsetY = path[i].y - cosinus * 5
+            return (x: offsetX + cosinus * (posOnPath - passedDist),
+                    y: offsetY + sinus * (posOnPath - passedDist))
         passedDist += partLen
 
