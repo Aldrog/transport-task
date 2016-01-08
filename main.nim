@@ -39,7 +39,8 @@ for i in 0..<busRoutes.len:
         if curPos >= 0 and prevPos >= 0 and curPos >= prevPos:
             curPos -= startPosition
             prevPos -= startPosition
-            if prevPos <= routeLen and curPos >= 0:
+            if prevPos <= routeLen and curPos >= 0 and
+               curPos - prevPos < 2000:
                 let curTime = busRoutes[i].time[j]
                 let prevTime = busRoutes[i].time[j - 1]
                 segments.add RouteSegment(positions: [prevPos, curPos],
@@ -49,14 +50,61 @@ proc price(x: seq[int]): float =
     if x.len != 37:
         return -1.0
     else:
-        result = (x[1] - x[0]).float
+        var maxDist = (x[1] - x[0])
+        var minDist = (x[1] - x[0])
         for i in 1..<x.high:
-            if (x[i + 1] - x[i]).float < result:
-                result = (x[i + 1] - x[i]).float
-        #result /= (abs(x.len - 39) + 1).float
+            if x[i + 1] - x[i] < minDist:
+                minDist = x[i + 1] - x[i]
+            if x[i + 1] - x[i] > maxDist:
+                maxDist = x[i + 1] - x[i]
+        return minDist / maxDist
 
+import graphics, colors
+from sdl import Surface
+proc visual(data: seq[RouteSegment]) =
+    const
+        width = 1000
+        height = 1000
+    var surf = newScreenSurface(width, height)
+    surf.fillSurface(colWhite)
+    var classificationData = newSeq[ClassificationPoint](fragmentNumber(routeLen) + 1)
+    var dsCount = newSeq[int](classificationData.len)
+    for i in 0..<classificationData.len:
+        classificationData[i] = zeros(2)
+        dsCount[i] = 0
+    for segm in data:
+        let speed = (segm.positions[1] - segm.positions[0]) /
+                    (segm.timestamps[1] - segm.timestamps[0]).float
+        for dsInd in max(0, min(fragmentNumber(segm.positions[0]),
+                                fragmentNumber(segm.positions[1]))) ..
+                     min(fragmentNumber(routeLen), max(fragmentNumber(segm.positions[0]),
+                                                       fragmentNumber(segm.positions[1]))):
+            classificationData[dsInd][0] += speed
+            if speed > classificationData[dsInd][1]:
+                classificationData[dsInd][1] = speed
+            inc dsCount[dsInd]
+    for i in 0..<classificationData.len:
+        if dsCount[i] != 0:
+            classificationData[i][0] /= dsCount[i].float
+    for i in 0..<classificationData.len:
+        surf[(i/2).int, height - 1 - 2*classificationData[i][0].int] = colGray
+        surf[(i/2).int, height - 1 - 2*classificationData[i][1].int] = colBlack
+    surf.drawVerLine(0, 0, height, colRed)
+    echo fragmentNumber(middleStopPosition)
+    surf.drawVerLine((fragmentNumber(middleStopPosition)/2).int, 0, height, colGreen)
+    surf.drawVerLine((fragmentNumber(routeLen)/2).int, 0, height, colBlue)
+    sdl.updateRect(surf.s, 0, 0, width, height)
+    withEvents(surf, event):
+        var eventp = addr(event)
+        case event.kind:
+            of sdl.QUITEV:
+                break
+            else: discard
+        sdl.updateRect(surf.s, 0, 0, width, height)
+
+#visual(segments)
 var endRes: seq[int]
-ransac(segments, seq[int], 1000, 10, price, dataSet, res, endRes):
+ransac(segments, seq[int], 5000, 50, price, dataSet, res, endRes):
     res.newSeq(0)
     var classificationData = newSeq[ClassificationPoint](fragmentNumber(routeLen) + 1)
     var dsCount = newSeq[int](classificationData.len)
@@ -81,19 +129,16 @@ ransac(segments, seq[int], 1000, 10, price, dataSet, res, endRes):
     for i in 0..<classificationData.len:
         if dsCount[i] != 0:
             classificationData[i][0] /= dsCount[i].float
-    var k = 2
-    var ok = true
+    var k = 10
     var clusters = newSeq[Cluster](0)
-    while ok:
+    while k >= 2 and clusters.len == 0:
         let curClusters = splitIntoClusters(classificationData, k)
         if curClusters.whichCluster(classificationData[0]) ==
            curClusters.whichCluster(classificationData[fragmentNumber(routeLen)]) and
            curClusters.whichCluster(classificationData[0]) ==
            curClusters.whichCluster(classificationData[fragmentNumber(middleStopPosition)]):
             clusters = curClusters
-        else:
-            ok = false
-        inc k
+        dec k
     #echo k - 1
     #echo clusters
     let stopCluster = clusters.whichCluster(classificationData[fragmentNumber(middleStopPosition)])

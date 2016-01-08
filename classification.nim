@@ -1,8 +1,8 @@
 import math, linalg
 #import dataprocessing, approximation
 
-const maxIterations = 1000
-const avgAcceptedError = 0.01
+const maxIterations = 100
+const maxAcceptedError = 0.05
 const dataComplexity = 2
 
 type ClassificationPoint* = Vector64[dataComplexity]
@@ -34,10 +34,11 @@ proc splitIntoClusters*(data: seq[ClassificationPoint], K: int): seq[Cluster] =
         for k in 0..<K:
             if kNumber[k] != 0:
                 newCenter[k].center /= kNumber[k].float
-        var distSum = 0.0
+        var maxDist = 0.0
         for k in 0..<K:
-            distSum += dist(result[k].center, newCenter[k].center)
-        if distSum < avgAcceptedError*K.float:
+            if dist(result[k].center, newCenter[k].center) > maxDist:
+                maxDist += dist(result[k].center, newCenter[k].center)
+        if maxDist < maxAcceptedError:
             return newCenter
         result = newCenter
 
