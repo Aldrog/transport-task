@@ -1,7 +1,7 @@
 import math
 import dataprocessing
 
-const lineWidth* = 25.0
+const lineWidth* = 10.0
 
 type Path* = seq[gpsPoint]
 

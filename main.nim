@@ -1,6 +1,5 @@
 import algorithm, path, math, linalg, strutils, times
 import dataprocessing, classification
-{.passL:"-lcblas".}
 
 const startPoint = (x: 11038.08464497, y: 8253.17542416)
 const endPoint = (x: 283.08479678, y: 163.45489494)
@@ -58,51 +57,6 @@ proc price(x: seq[int]): float =
             if x[i + 1] - x[i] > maxDist:
                 maxDist = x[i + 1] - x[i]
         return minDist / maxDist
-
-import graphics, colors
-from sdl import Surface
-proc visual(data: seq[RouteSegment]) =
-    const
-        width = 1000
-        height = 1000
-    var surf = newScreenSurface(width, height)
-    surf.fillSurface(colWhite)
-    var classificationData = newSeq[ClassificationPoint](fragmentNumber(routeLen) + 1)
-    var dsCount = newSeq[int](classificationData.len)
-    for i in 0..<classificationData.len:
-        classificationData[i] = zeros(2)
-        dsCount[i] = 0
-    for segm in data:
-        let speed = (segm.positions[1] - segm.positions[0]) /
-                    (segm.timestamps[1] - segm.timestamps[0]).float
-        for dsInd in max(0, min(fragmentNumber(segm.positions[0]),
-                                fragmentNumber(segm.positions[1]))) ..
-                     min(fragmentNumber(routeLen), max(fragmentNumber(segm.positions[0]),
-                                                       fragmentNumber(segm.positions[1]))):
-            classificationData[dsInd][0] += speed
-            if speed > classificationData[dsInd][1]:
-                classificationData[dsInd][1] = speed
-            inc dsCount[dsInd]
-    for i in 0..<classificationData.len:
-        if dsCount[i] != 0:
-            classificationData[i][0] /= dsCount[i].float
-    for i in 0..<classificationData.len:
-        surf[(i/2).int, height - 1 - 2*classificationData[i][0].int] = colGray
-        surf[(i/2).int, height - 1 - 2*classificationData[i][1].int] = colBlack
-    surf.drawVerLine(0, 0, height, colRed)
-    echo fragmentNumber(middleStopPosition)
-    surf.drawVerLine((fragmentNumber(middleStopPosition)/2).int, 0, height, colGreen)
-    surf.drawVerLine((fragmentNumber(routeLen)/2).int, 0, height, colBlue)
-    sdl.updateRect(surf.s, 0, 0, width, height)
-    withEvents(surf, event):
-        var eventp = addr(event)
-        case event.kind:
-            of sdl.QUITEV:
-                break
-            else: discard
-        sdl.updateRect(surf.s, 0, 0, width, height)
-
-#visual(segments)
 var endRes: seq[int]
 ransac(segments, seq[int], 5000, 50, price, dataSet, res, endRes):
     res.newSeq(0)
@@ -153,16 +107,16 @@ ransac(segments, seq[int], 5000, 50, price, dataSet, res, endRes):
         possibleStops.sort do (x, y: int) -> int:
             cmp(classification.dist(classificationData[x], clusters[stopCluster].center),
                 classification.dist(classificationData[y], clusters[stopCluster].center))
-        for i in possibleStops:
-            if (i - 1) notin possibleStops and (i + 1) notin possibleStops:
-                res.add i
-        while res.len > 37:
-            res.delete(res.high)
         var ind = 0
-        while res.len < 37:
-            if possibleStops[ind] notin res and
-              (possibleStops[ind] - 1) notin res and (possibleStops[ind] + 1) notin res:
-                res.add possibleStops[ind]
+        while res.len < 37 and ind < possibleStops.len:
+            if possibleStops[ind] notin res:
+                var good = true
+                for i in (possibleStops[ind] - 20)..(possibleStops[ind] + 20):
+                    if i <= 0 or i >= classificationData.high or
+                                                        i in res:
+                        good = false
+                if good:
+                    res.add possibleStops[ind]
             inc ind
         res.sort(cmp[int])
 echo endRes
